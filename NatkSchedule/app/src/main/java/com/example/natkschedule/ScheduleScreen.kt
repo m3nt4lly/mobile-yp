@@ -1,71 +1,134 @@
 package com.example.natkschedule
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun ScheduleScreen(viewModel: ScheduleViewModel = viewModel()) {
-    val groups by viewModel.groups.collectAsState()
+    val filteredGroups by viewModel.filteredGroupsFlow.collectAsState()
     val schedule by viewModel.schedule.collectAsState()
     val selectedGroup by viewModel.selectedGroup.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val favorites by viewModel.favorites.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
 
     var expanded by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        // Dropdown выбора группы
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = selectedGroup,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Выберите группу") },
-                trailingIcon = {
-                    Icon(
-                        Icons.Default.ArrowDropDown, "contentDescription",
-                        Modifier.clickable { expanded = !expanded }
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Расписание НАТК", fontWeight = FontWeight.Bold) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             )
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false }
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp)
+        ) {
+            // Search and Selection
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                groups.forEach { group ->
-                    DropdownMenuItem(
-                        text = { Text(group) },
-                        onClick = {
-                            viewModel.selectGroup(group)
-                            expanded = false
-                        }
+                Box(modifier = Modifier.weight(1f)) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { 
+                            viewModel.onSearchQueryChange(it)
+                            expanded = true 
+                        },
+                        label = { Text("Поиск группы") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                           if (selectedGroup.isNotEmpty()) {
+                               IconButton(onClick = { viewModel.toggleFavorite(selectedGroup) }) {
+                                   Icon(
+                                       imageVector = if (favorites.contains(selectedGroup)) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                       contentDescription = "Favorite",
+                                       tint = if (favorites.contains(selectedGroup)) Color.Red else MaterialTheme.colorScheme.onSurface
+                                   )
+                               }
+                           }
+                        },
+                        modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
+                             if (state.isFocused) expanded = true
+                        },
+                        singleLine = true
                     )
+                    
+                    DropdownMenu(
+                        expanded = expanded && filteredGroups.isNotEmpty(),
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.fillMaxWidth(0.9f).heightIn(max = 300.dp)
+                    ) {
+                        // Show Favorites First
+                        val favoriteMatches = filteredGroups.filter { favorites.contains(it) }
+                        val otherMatches = filteredGroups.filter { !favorites.contains(it) }
+
+                        if (favoriteMatches.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("Избранное", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) },
+                                onClick = {},
+                                enabled = false
+                            )
+                            favoriteMatches.forEach { group ->
+                                GroupDropdownItem(group, true) {
+                                    viewModel.selectGroup(group)
+                                    expanded = false
+                                }
+                            }
+                            Divider()
+                        }
+
+                        otherMatches.forEach { group ->
+                            GroupDropdownItem(group, false) {
+                                viewModel.selectGroup(group)
+                                expanded = false
+                            }
+                        }
+                    }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(schedule) { daySchedule ->
-                    DayHeader(daySchedule)
-                    daySchedule.lessons.forEach { lesson ->
-                        LessonCard(lesson)
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
+                    items(schedule) { daySchedule ->
+                        DayScheduleItem(daySchedule)
                     }
                 }
             }
@@ -74,55 +137,142 @@ fun ScheduleScreen(viewModel: ScheduleViewModel = viewModel()) {
 }
 
 @Composable
-fun DayHeader(daySchedule: ScheduleByDateDto) {
-    Text(
-        text = "${daySchedule.date} (${daySchedule.weekdayName})",
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(vertical = 8.dp)
+fun GroupDropdownItem(group: String, isFavorite: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isFavorite) {
+                    Icon(
+                        Icons.Default.Favorite, 
+                        contentDescription = null, 
+                        tint = Color.Red,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(group)
+            }
+        },
+        onClick = onClick
     )
+}
+
+@Composable
+fun DayScheduleItem(daySchedule: ScheduleByDateDto) {
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 8.dp)
+        ) {
+            Icon(Icons.Default.DateRange, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "${daySchedule.date} (${daySchedule.weekdayName})",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        if (daySchedule.lessons.isEmpty()) {
+            Text("Нет пар", modifier = Modifier.padding(start = 32.dp), style = MaterialTheme.typography.bodyMedium)
+        } else {
+            daySchedule.lessons.forEach { lesson ->
+                LessonCard(lesson)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    }
 }
 
 @Composable
 fun LessonCard(lesson: LessonDto) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(16.dp)) {
+            // Time Column
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.width(60.dp)
+            ) {
                 Text(
-                    text = "${lesson.lessonNumber} пара",
-                    style = MaterialTheme.typography.labelSmall
+                    text = "${lesson.lessonNumber}",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "${lesson.timeStart} - ${lesson.timeEnd}",
+                    text = "пара",
                     style = MaterialTheme.typography.labelSmall
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = lesson.timeStart,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = lesson.timeEnd,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
                 )
             }
-            
-            Spacer(modifier = Modifier.height(8.dp))
 
-            if (lesson.parts.isEmpty()) {
-                Text("Нет занятий", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-            } else {
-                lesson.parts.forEach { (partName, partInfo) ->
-                    Column(modifier = Modifier.padding(bottom = 4.dp)) {
-                        if (partName != "FULL") {
+            Spacer(modifier = Modifier.width(16.dp))
+            Divider(modifier = Modifier.height(80.dp).width(1.dp), color = Color.Gray.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // Details Column
+            Column(modifier = Modifier.weight(1f)) {
+                 if (lesson.parts.isEmpty()) {
+                    Text("Свободно", style = MaterialTheme.typography.bodyLarge)
+                } else {
+                    lesson.parts.forEach { (partName, partInfo) ->
+                        Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                            // Badge for Subgroup
+                            if (partName != "FULL") {
+                                Surface(
+                                    color = if(partName == "SUB1") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.tertiary,
+                                    shape = RoundedCornerShape(4.dp),
+                                    modifier = Modifier.padding(bottom = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (partName == "SUB1") "1 п/г" else "2 п/г",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            
                             Text(
-                                text = if (partName == "SUB1") "Подгруппа 1" else "Подгруппа 2",
+                                text = partInfo.subjectName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = partInfo.classroomNumber,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Text(" | ", color = Color.Gray)
+                                Text(
+                                    text = partInfo.teacherName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1
+                                )
+                            }
+                            Text(
+                                text = partInfo.buildingName,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.secondary
+                                color = Color.Gray
                             )
                         }
-                        Text(
-                            text = partInfo.subjectName,
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Text(
-                            text = "${partInfo.teacherName} | ${partInfo.classroomNumber} (${partInfo.buildingName})",
-                            style = MaterialTheme.typography.bodySmall
-                        )
                     }
                 }
             }
