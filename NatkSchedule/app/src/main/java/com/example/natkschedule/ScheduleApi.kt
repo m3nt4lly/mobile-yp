@@ -19,7 +19,7 @@ interface ScheduleApi {
 }
 
 object RetrofitInstance {
-    private const val BASE_URL = "http://10.0.2.2:5000/"
+    private const val BASE_URL = "https://m3nt4lly.ru:5001/"
 
     val api: ScheduleApi by lazy {
         Retrofit.Builder()
