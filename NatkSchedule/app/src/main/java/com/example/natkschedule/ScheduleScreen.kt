@@ -136,26 +136,7 @@ fun ScheduleScreen(viewModel: ScheduleViewModel = viewModel()) {
     }
 }
 
-@Composable
-fun GroupDropdownItem(group: String, isFavorite: Boolean, onClick: () -> Unit) {
-    DropdownMenuItem(
-        text = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isFavorite) {
-                    Icon(
-                        Icons.Default.Favorite, 
-                        contentDescription = null, 
-                        tint = Color.Red,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
-                Text(group)
-            }
-        },
-        onClick = onClick
-    )
-}
+
 
 @Composable
 fun DayScheduleItem(daySchedule: ScheduleByDateDto) {
